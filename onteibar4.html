@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>声の音程バー</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;800&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: カラオケ画面。お手本の音程レーン → 自分の声の読み取り → 曲の設定 の順に縦に積む */
+:root{
+  --bg:#0e0b1a; --panel:#18132b; --lane:#1f1936; --lane-dark:#151027;
+  --line:#2e2650; --fg:#efeaff; --muted:#9a90c2;
+  --guide:#3a3270; --guide-line:#8a7fd0;
+  --accent:#ffcf3f; --hit:#4fe3c1; --off:#ff6f91;
+  --display:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+html,body{min-height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--display);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:16px;box-sizing:border-box}
+.wrap{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;min-width:0}
+header .status{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+h1{white-space:nowrap}
+h1{font-size:1.35rem;font-weight:800;margin:0;letter-spacing:.02em}
+h1 span{color:var(--accent)}
+.status{font-size:.8rem;color:var(--muted)}
+.stage{position:relative;background:var(--panel);border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+canvas{display:block;width:100%;height:300px}
+.tag{position:absolute;top:10px;right:12px;font-size:.72rem;color:var(--bg);background:var(--muted);padding:2px 8px;border-radius:99px;letter-spacing:.06em}
+.prog{display:flex;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--line)}
+.bar{flex:1;height:4px;border-radius:99px;background:var(--lane);overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent)}
+.time{font-family:var(--mono);font-size:.75rem;color:var(--muted);font-variant-numeric:tabular-nums}
+/* 音程表示の専用スペース:中身が変わっても高さは固定 */
+.readout{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;
+  height:7.25rem;box-sizing:border-box;padding:12px 14px;overflow:hidden;
+  background:var(--panel);border:1px solid var(--line);border-radius:14px}
+.note{width:7.5rem;text-align:center}
+.note b{display:block;height:3.2rem;font-size:3.2rem;line-height:1;font-weight:800;color:var(--accent);white-space:nowrap}
+.note small{display:block;height:1.4em;line-height:1.4;font-family:var(--mono);font-size:.95rem;color:var(--muted)}
+.meter{display:flex;flex-direction:column;gap:6px;min-width:0}
+.cents{position:relative;height:16px;border-radius:99px;background:linear-gradient(90deg,var(--off),var(--lane) 35%,var(--hit) 50%,var(--lane) 65%,var(--off))}
+.cents i{position:absolute;top:-4px;width:4px;height:24px;border-radius:2px;background:var(--fg);left:50%;transform:translateX(-50%);transition:left .08s linear}
+.scale{display:flex;justify-content:space-between;font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+.hz{font-family:var(--mono);font-size:.8rem;line-height:1.5;height:3em;overflow:hidden;color:var(--fg);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.song{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.row{display:flex;gap:12px 16px;flex-wrap:wrap;align-items:center}
+.row.split{justify-content:space-between}
+.title{min-width:0}
+.title small,.sel span,.key span{display:block;font-size:.72rem;color:var(--muted);letter-spacing:.06em}
+.title b{font-size:1.1rem;overflow-wrap:anywhere}
+select{font:inherit;font-size:.9rem;background:var(--lane);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;max-width:100%}
+.sel{min-width:0;max-width:100%}
+.key{display:flex;align-items:center;gap:8px}
+.key span{display:inline;margin-right:2px}
+.key b{font-family:var(--mono);min-width:2.6em;text-align:center;font-variant-numeric:tabular-nums}
+.chk{display:flex;align-items:center;gap:6px;font-size:.9rem;cursor:pointer}
+.chk input{width:18px;height:18px;accent-color:var(--hit)}
+.score{display:flex;align-items:baseline;gap:4px}
+.score b{font-size:2.4rem;font-weight:800;color:var(--hit);font-variant-numeric:tabular-nums;line-height:1}
+.score small{color:var(--muted)}
+button,.file{font:inherit;font-weight:800;font-size:.95rem;border:0;border-radius:12px;padding:12px 18px;cursor:pointer;color:var(--bg);background:var(--accent);position:relative}
+button.ghost,.file{background:transparent;color:var(--fg);border:1px solid var(--line)}
+button.mini{padding:4px 12px;font-size:1.1rem;background:var(--lane);color:var(--fg);border:1px solid var(--line)}
+button:focus-visible,.file:focus-within,select:focus-visible{outline:3px solid var(--hit);outline-offset:2px}
+.file input{position:absolute;opacity:0;width:1px;height:1px}
+.controls{display:flex;gap:10px;flex-wrap:wrap}
+.msg{font-size:.85rem;color:var(--muted);line-height:1.7;max-width:62ch;margin:0}
+.msg.warn{color:var(--off)}
+.msg.good{color:var(--hit)}
+.lyrics{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;padding:10px 12px;border-top:1px solid var(--line);background:var(--lane-dark)}
+.lyrics p{margin:0;min-width:0;overflow-wrap:anywhere}
+#lyrNow{font-size:1.2rem;font-weight:800;color:var(--fg);grid-column:1;line-height:1.35;height:2.7em;overflow:hidden;display:flex;align-items:flex-end}
+#lyrNext{font-size:.9rem;color:var(--muted);grid-column:1;line-height:1.4;height:1.4em;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:block}
+.lshift{grid-column:2;grid-row:1 / span 2;display:flex;gap:6px}
+.lib{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.editor{display:flex;flex-direction:column;gap:8px}
+textarea{font:inherit;font-size:.95rem;line-height:1.7;background:var(--lane);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:10rem;resize:vertical;width:100%;box-sizing:border-box}
+textarea:focus-visible{outline:3px solid var(--hit);outline-offset:2px}
+.hint{font-size:.78rem;color:var(--muted);margin:0;line-height:1.6}
+button.danger{color:var(--off);border-color:var(--off)}
+button.small{padding:8px 12px;font-size:.85rem}
+@media (max-width:480px){canvas{height:250px}.note b{font-size:2.6rem;height:2.6rem}.note{width:5.5rem}.readout{height:6.9rem;gap:12px;padding:10px 12px}}
+@media (prefers-reduced-motion:reduce){.cents i{transition:none}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>声の<span>音程バー</span></h1>
+    <div class="status" id="status">サンプルを表示中</div>
+  </header>
+
+  <div class="stage">
+    <canvas id="cv"></canvas>
+    <div class="tag" id="tag">サンプル</div>
+    <div class="lyrics" id="lyrBox" hidden>
+      <p id="lyrNow"></p><p id="lyrNext"></p>
+      <div class="lshift"><button class="mini" id="lyrBack" aria-label="歌詞を1行戻す">◀</button><button class="mini" id="lyrFwd" aria-label="歌詞を1行進める">▶</button></div>
+    </div>
+    <div class="prog"><div class="bar"><i id="progBar"></i></div><span class="time" id="time">0:00 / 0:00</span></div>
+  </div>
+
+  <div class="readout">
+    <div class="note"><b id="noteJa">—</b><small id="noteEn"></small></div>
+    <div class="meter">
+      <div class="cents"><i id="needle"></i></div>
+      <div class="scale"><span>−50¢ 低い</span><span>ぴったり</span><span>高い +50¢</span></div>
+      <div class="hz" id="hz"></div>
+    </div>
+  </div>
+
+  <section class="song">
+    <div class="lib">
+      <label class="sel"><span>マイ曲リスト</span><select id="libSel"></select></label>
+      <button class="ghost small" id="lyrEditBtn">✎ 歌詞を入力</button>
+      <button class="ghost small danger" id="delBtn">この曲を削除</button>
+    </div>
+    <div class="editor" id="editor" hidden>
+      <textarea id="lyrText" placeholder="歌詞を1行ずつ貼り付けてください"></textarea>
+      <p class="hint">1行が、メロディのひと区切り(息継ぎまで)に対応します。空の行は無視されます。表示がずれたら、歌詞の横の ◀ ▶ で調整できます。</p>
+      <div class="row"><button class="small" id="lyrSave">保存する</button><button class="ghost small" id="lyrClose">閉じる</button></div>
+    </div>
+    <div class="row split">
+      <div class="title"><small>曲</small><b id="songName">きらきら星(サンプル)</b></div>
+      <label class="sel"><span>メロディのパート</span><select id="partSel"></select></label>
+    </div>
+    <div class="row">
+      <div class="key"><span>キー</span><button class="mini" id="keyDown" aria-label="キーを下げる">−</button><b id="keyVal">±0</b><button class="mini" id="keyUp" aria-label="キーを上げる">＋</button></div>
+      <label class="chk"><input type="checkbox" id="optAcc" checked>伴奏</label>
+      <label class="chk"><input type="checkbox" id="optGuide" checked>お手本の音</label>
+      <label class="chk"><input type="checkbox" id="optOct" checked>オクターブ違いもOK</label>
+    </div>
+    <div class="row split">
+      <button id="singBtn">▶ この曲を歌う</button>
+      <div class="score"><b id="scoreVal">—</b><small>点</small></div>
+    </div>
+  </section>
+
+  <div class="controls">
+    <label class="file">MIDIファイルを読み込む<input type="file" id="file" accept=".mid,.midi,.kar,audio/midi,audio/x-midi"></label>
+    <button class="ghost" id="freeBtn">🎤 自由に歌う</button>
+  </div>
+  <div class="controls">
+    <button class="ghost small" id="exportBtn">バックアップを書き出す</button>
+    <label class="file small" style="padding:8px 12px;font-size:.85rem">バックアップを読み込む<input type="file" id="importFile" accept=".json,application/json"></label>
+  </div>
+  <p class="msg" id="msg">「この曲を歌う」を押すと、紫のお手本バーが右から流れてきます。黄色の線に重なったときに、同じ高さの声を出してください。合っていれば緑、ずれると赤になります。スピーカーの音をマイクが拾うので、イヤホンを使うと正確になります。</p>
+</div>
+
+<script>
+const JA=["ド","ド#","レ","レ#","ミ","ファ","ファ#","ソ","ソ#","ラ","ラ#","シ"];
+const EN=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d');
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C={lane:css('--lane'),dark:css('--lane-dark'),line:css('--line'),muted:css('--muted'),fg:css('--fg'),
+  guide:css('--guide'),gline:css('--guide-line'),accent:css('--accent'),hit:css('--hit'),off:css('--off')};
+
+const WINDOW=7, NOWX=0.3, SPAN=18;
+const hzToMidi=f=>69+12*Math.log2(f/440);
+const midiToHz=m=>440*Math.pow(2,(m-69)/12);
+const nameOf=m=>{const r=Math.round(m),pc=((r%12)+12)%12;return {ja:JA[pc],en:EN[pc]+(Math.floor(r/12)-1)}};
+const fmt=s=>{s=Math.max(0,s);return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')};
+
+let actx=null,master=null,stream=null,analyser=null,abuf=null,lastRms=0;
+let song=null,melodyId=null,guide=[],transpose=0;
+const opt={accomp:true,guideSound:true,octave:true};
+let run=null,raf=0,trail=[],center=62,recent=[];
+let sched={i:0,nodes:new Set()},score={hit:0,total:0};
+
+/* ---------- 音程検出(正規化自己相関) ---------- */
+function detect(buf,sr){
+  let rms=0;for(let i=0;i<buf.length;i++)rms+=buf[i]*buf[i];
+  rms=Math.sqrt(rms/buf.length);lastRms=rms;if(rms<0.004)return null;
+  const minLag=Math.floor(sr/1000),maxLag=Math.min(Math.floor(sr/65),buf.length>>1);
+  const n=buf.length-maxLag,nsdf=new Float32Array(maxLag+1);
+  for(let lag=minLag;lag<=maxLag;lag++){
+    let ac=0,m=0;
+    for(let i=0;i<n;i++){const a=buf[i],b=buf[i+lag];ac+=a*b;m+=a*a+b*b}
+    nsdf[lag]=m?2*ac/m:0;
+  }
+  let best=0;for(let l=minLag;l<=maxLag;l++)if(nsdf[l]>best)best=nsdf[l];
+  if(best<0.6)return null;
+  let lag=-1;
+  for(let l=minLag+1;l<maxLag;l++){if(nsdf[l]>0.9*best&&nsdf[l]>=nsdf[l-1]&&nsdf[l]>=nsdf[l+1]){lag=l;break}}
+  if(lag<0)return null;
+  const a=nsdf[lag-1],b=nsdf[lag],c=nsdf[lag+1],d=a-2*b+c;
+  return sr/(lag+(d?0.5*(a-c)/d:0));
+}
+
+/* ---------- MIDI読み込み ---------- */
+function decodeName(bytes){
+  try{return new TextDecoder('utf-8',{fatal:true}).decode(bytes)}catch(e){}
+  try{return new TextDecoder('shift_jis').decode(bytes)}catch(e){return ''}
+}
+function parseMidi(ab){
+  const d=new DataView(ab),len=ab.byteLength;let p=0;
+  const u8=()=>d.getUint8(p++),u16=()=>{const v=d.getUint16(p);p+=2;return v},u32=()=>{const v=d.getUint32(p);p+=4;return v};
+  const id=()=>String.fromCharCode(u8(),u8(),u8(),u8());
+  const vl=()=>{let v=0,b;do{b=u8();v=(v<<7)|(b&0x7f)}while(b&0x80);return v};
+  if(id()!=='MThd')throw new Error('MIDIファイルではありません');
+  const hl=u32();u16();const nt=u16(),div=u16();p=8+hl;
+  if(div&0x8000)throw new Error('この形式(SMPTE)のMIDIには対応していません');
+  const tempos=[],raw=[],names=[],lyr=[];
+  for(let tr=0;tr<nt&&p+8<=len;tr++){
+    const cid=id(),clen=u32(),end=Math.min(len,p+clen);
+    if(cid!=='MTrk'){p=end;tr--;continue}
+    let tick=0,rs=0,name='';const open={};
+    while(p<end){
+      tick+=vl();
+      let st=d.getUint8(p);
+      if(st&0x80){p++;if(st<0xF0)rs=st}else st=rs;
+      if(st===0xFF){
+        const type=u8(),l=vl();
+        if(type===0x51&&l===3)tempos.push({tick,us:(d.getUint8(p)<<16)|(d.getUint8(p+1)<<8)|d.getUint8(p+2)});
+        if(type===0x03&&!name)name=decodeName(new Uint8Array(ab,p,l));
+        if(type===0x05||type===0x01)lyr.push({type,text:decodeName(new Uint8Array(ab,p,l))});
+        p+=l;
+      }else if(st===0xF0||st===0xF7){p+=vl()}
+      else{
+        const hi=st&0xF0,ch=st&0x0F,a=u8(),b=(hi===0xC0||hi===0xD0)?0:u8();
+        const k=ch*128+a;
+        if(hi===0x90&&b>0){(open[k]=open[k]||[]).push({tick,v:b})}
+        else if(hi===0x80||(hi===0x90&&b===0)){
+          const o=open[k]&&open[k].shift();
+          if(o&&ch!==9)raw.push({tr,ch,m:a,on:o.tick,off:tick,v:o.v});
+        }
+      }
+    }
+    names[tr]=name;p=end;
+  }
+  // テンポ情報から tick → 秒 へ
+  tempos.sort((a,b)=>a.tick-b.tick);
+  const segs=[{tick:0,sec:0,us:500000}];
+  for(const t of tempos){
+    const L=segs[segs.length-1];
+    const sec=L.sec+(t.tick-L.tick)*L.us/1e6/div;
+    if(t.tick===L.tick){L.us=t.us}else segs.push({tick:t.tick,sec,us:t.us});
+  }
+  const toSec=t=>{let s=segs[0];for(const x of segs){if(x.tick<=t)s=x;else break}return s.sec+(t-s.tick)*s.us/1e6/div};
+  const parts={};
+  for(const r of raw){
+    const pid=r.tr+'-'+r.ch;
+    if(!parts[pid])parts[pid]={id:pid,name:(names[r.tr]||'トラック'+(r.tr+1))+' (ch'+(r.ch+1)+')',notes:[]};
+    const t=toSec(r.on);
+    parts[pid].notes.push({t,d:Math.max(0.05,toSec(r.off)-t),m:r.m,v:r.v,part:pid});
+  }
+  return {parts:Object.values(parts).filter(x=>x.notes.length>=8),lyrics:karText(lyr)};
+}
+// カラオケMIDI(.kar)に入っている歌詞を、行ごとの文字列にする
+function karText(ev){
+  const use=ev.some(e=>e.type===0x05)?ev.filter(e=>e.type===0x05):ev.filter(e=>e.type===0x01&&!e.text.startsWith('@'));
+  let s='';for(const e of use)s+=e.text.replace(/^[\/\\]/,'\n').replace(/\r/g,'\n');
+  return s.split('\n').map(x=>x.trim()).filter(Boolean).join('\n');
+}
+
+// どのパートがメロディか推測(単音・歌いやすい高さ・名前)
+function guessMelody(parts){
+  let best=null,bs=-1;
+  for(const pt of parts){
+    const ns=pt.notes.slice().sort((a,b)=>a.t-b.t);
+    let ov=0,sum=0;
+    for(let i=0;i<ns.length;i++){sum+=ns[i].m;if(i&&ns[i].t<ns[i-1].t+ns[i-1].d-0.06)ov++}
+    const mean=sum/ns.length,mono=1-ov/ns.length;
+    let s=mono*2+(mean>=55&&mean<=80?1:0)+Math.min(ns.length,400)/800;
+    if(/melo|vocal|voice|lead|sing|メロ|歌|ボーカル|主旋律/i.test(pt.name))s+=3;
+    if(s>bs){bs=s;best=pt.id}
+  }
+  return best;
+}
+
+function loadSong(name,parts){
+  parts.forEach(pt=>pt.notes.sort((a,b)=>a.t-b.t));
+  const all=parts.flatMap(pt=>pt.notes).sort((a,b)=>a.t-b.t);
+  const duration=all.reduce((mx,n)=>Math.max(mx,n.t+n.d),0);
+  song={name,parts,all,duration};
+  $('songName').textContent=name;
+  const sel=$('partSel');sel.innerHTML='';
+  for(const pt of parts){const o=document.createElement('option');o.value=pt.id;o.textContent=pt.name+'・'+pt.notes.length+'音';sel.appendChild(o)}
+  setMelody(guessMelody(parts));
+  transpose=0;$('keyVal').textContent='±0';
+  $('time').textContent='0:00 / '+fmt(duration);$('progBar').style.width='0%';
+  $('scoreVal').textContent='—';
+}
+function setMelody(id){
+  melodyId=id;$('partSel').value=id;
+  guide=(song.parts.find(p=>p.id===id)||{notes:[]}).notes;
+  if(guide.length)center=guide.slice(0,12).reduce((s,n)=>s+n.m,0)/Math.min(12,guide.length)+transpose;
+  // メロディを「ひと区切り」ごとに分ける(休み or 長い音のあと)
+  phrases=[];
+  if(guide.length){
+    const ds=guide.map(n=>n.d).sort((a,b)=>a-b),med=ds[ds.length>>1];
+    phrases.push(guide[0].t);
+    for(let i=1;i<guide.length;i++){
+      const pv=guide[i-1],gap=guide[i].t-(pv.t+pv.d);
+      if(gap>0.35||pv.d>med*1.7)phrases.push(guide[i].t);
+    }
+  }
+}
+
+/* ---------- 歌詞 ---------- */
+let phrases=[],lyricLines=[],lyricShift=0,shownLine=null;
+function setLyrics(text){
+  lyricLines=(text||'').split('\n').map(x=>x.trim()).filter(Boolean);
+  $('lyrText').value=text||'';shownLine=null;
+  $('lyrBox').hidden=!lyricLines.length;
+}
+function updateLyrics(t){
+  if(!lyricLines.length)return;
+  let k=0;for(let i=0;i<phrases.length;i++){if(phrases[i]-0.8<=t)k=i;else break}
+  const i=k+lyricShift;if(i===shownLine)return;shownLine=i;
+  $('lyrNow').textContent=lyricLines[i]||(i<0?'…':'');
+  $('lyrNext').textContent=lyricLines[i+1]||'';
+}
+
+/* ---------- 曲の保存(このブラウザの中) ---------- */
+let db=null,cur=null;
+const SAMPLE='きらきら星(サンプル)';
+const SAMPLE_LYRICS='Twinkle, twinkle, little star,\nHow I wonder what you are!\nUp above the world so high,\nLike a diamond in the sky.\nTwinkle, twinkle, little star,\nHow I wonder what you are!';
+function openDB(){return new Promise(res=>{try{const r=indexedDB.open('onteibar',1);
+  r.onupgradeneeded=()=>r.result.createObjectStore('songs',{keyPath:'name'});
+  r.onsuccess=()=>res(r.result);r.onerror=()=>res(null)}catch(e){res(null)}})}
+function dbReq(mode,fn){return new Promise(res=>{if(!db)return res(null);
+  try{const r=fn(db.transaction('songs',mode).objectStore('songs'));r.onsuccess=()=>res(r.result);r.onerror=()=>res(null)}catch(e){res(null)}})}
+const dbGet=n=>dbReq('readonly',s=>s.get(n)),dbPut=o=>dbReq('readwrite',s=>s.put(o)),
+  dbAll=()=>dbReq('readonly',s=>s.getAll()),dbDel=n=>dbReq('readwrite',s=>s.delete(n));
+async function saveCur(){
+  if(!cur)return;
+  Object.assign(cur,{melodyId,transpose,shift:lyricShift,lyrics:lyricLines.join('\n'),updated:Date.now()});
+  await dbPut(cur);await refreshList();
+}
+async function refreshList(){
+  const all=((await dbAll())||[]).sort((a,b)=>(b.updated||0)-(a.updated||0));
+  if(!all.some(r=>r.name===SAMPLE))all.push({name:SAMPLE});
+  const sel=$('libSel');sel.innerHTML='';
+  for(const r of all){const o=document.createElement('option');o.value=r.name;o.textContent=r.name;sel.appendChild(o)}
+  if(cur)sel.value=cur.name;
+}
+function loadRecord(rec){
+  const parts=rec.midi?parseMidi(rec.midi).parts:sampleSong();
+  cur=rec;loadSong(rec.name,parts);
+  if(rec.melodyId&&parts.some(p=>p.id===rec.melodyId))setMelody(rec.melodyId);
+  setKey(rec.transpose||0);
+  lyricShift=rec.shift||0;setLyrics(rec.lyrics!=null?rec.lyrics:(rec.midi?'':SAMPLE_LYRICS));
+  try{localStorage.setItem('onteibar:last',rec.name)}catch(e){}
+  $('libSel').value=rec.name;
+}
+
+/* ---------- サンプル曲(きらきら星・パブリックドメイン) ---------- */
+function sampleSong(){
+  const B=0.45,l1=[[60,1],[60,1],[67,1],[67,1],[69,1],[69,1],[67,2],[65,1],[65,1],[64,1],[64,1],[62,1],[62,1],[60,2]],
+    l2=[[67,1],[67,1],[65,1],[65,1],[64,1],[64,1],[62,2],[67,1],[67,1],[65,1],[65,1],[64,1],[64,1],[62,2]];
+  const mel=[],acc=[];let t=0.5;
+  for(const [m,b] of [...l1,...l2,...l1]){mel.push({t,d:b*B*0.9,m,v:100,part:'s0'});t+=b*B}
+  const CH={C:[48,52,55],F:[41,45,48],G:[43,47,50]};
+  const prog=['C','C','F','C','F','C','G','C','C','F','C','G','C','F','C','G','C','C','F','C','F','C','G','C'];
+  prog.forEach((c,i)=>CH[c].forEach(m=>acc.push({t:0.5+i*2*B,d:2*B*0.95,m,v:70,part:'s1'})));
+  return [{id:'s0',name:'メロディ',notes:mel},{id:'s1',name:'伴奏',notes:acc}];
+}
+
+/* ---------- 音を鳴らす ---------- */
+function audio(){
+  if(!actx){
+    actx=new (window.AudioContext||window.webkitAudioContext)();
+    const comp=actx.createDynamicsCompressor();master=actx.createGain();master.gain.value=0.9;
+    master.connect(comp);comp.connect(actx.destination);
+  }
+  actx.resume();return actx;
+}
+function playNote(n,when,isMel){
+  const o=actx.createOscillator(),g=actx.createGain();
+  o.type=isMel?'triangle':'sine';o.frequency.value=midiToHz(n.m+transpose);
+  const peak=(isMel?0.22:0.08)*(n.v/127),end=when+Math.min(n.d,4);
+  g.gain.setValueAtTime(0,when);g.gain.linearRampToValueAtTime(peak,when+0.015);
+  g.gain.setTargetAtTime(peak*0.6,when+0.02,0.2);g.gain.setTargetAtTime(0,end,0.05);
+  o.connect(g);g.connect(master);o.start(when);o.stop(end+0.3);
+  sched.nodes.add(o);o.onended=()=>sched.nodes.delete(o);
+}
+function schedule(now){
+  const all=song.all;
+  while(sched.i<all.length&&all[sched.i].t<now+0.5){
+    const n=all[sched.i++];if(n.t<now-0.05)continue;
+    const isMel=n.part===melodyId;
+    if(isMel?opt.guideSound:opt.accomp)playNote(n,run.start+n.t,isMel);
+  }
+}
+
+/* ---------- マイク ---------- */
+async function startMic(){
+  if(stream)return true;
+  try{stream=await navigator.mediaDevices.getUserMedia({audio:true})}catch(e){return false}
+  const src=actx.createMediaStreamSource(stream);
+  analyser=actx.createAnalyser();analyser.fftSize=2048;abuf=new Float32Array(2048);src.connect(analyser);
+  return true;
+}
+function stopMic(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;analyser=null}
+function readPitch(){
+  if(!analyser)return {m:null,f:null};
+  analyser.getFloatTimeDomainData(abuf);
+  const f=detect(abuf,actx.sampleRate),m=f&&f>65&&f<1100?hzToMidi(f):null;
+  recent.push(m);if(recent.length>3)recent.shift();
+  if(m==null||recent.some(x=>x==null))return {m,f};
+  const s=recent.slice().sort((a,b)=>a-b);return {m:s[1],f:midiToHz(s[1])};
+}
+
+/* ---------- 判定 ---------- */
+function guideAt(t){
+  let lo=0,hi=guide.length-1,k=-1;
+  while(lo<=hi){const md=(lo+hi)>>1;if(guide[md].t<=t){k=md;lo=md+1}else hi=md-1}
+  for(let i=k;i>=0&&i>k-3;i--){const g=guide[i];if(t<g.t+g.d)return g.m+transpose}
+  return null;
+}
+function fold(m,t){if(!opt.octave)return m;while(m-t>6)m-=12;while(t-m>6)m+=12;return m}
+
+/* ---------- 描画 ---------- */
+function resize(){const r=cv.getBoundingClientRect(),dpr=devicePixelRatio||1;cv.width=r.width*dpr;cv.height=r.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+function rrect(x,y,w,h,r){ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,Math.min(r,h/2,w/2));else ctx.rect(x,y,w,h)}
+function draw(now,showGuide){
+  const W=cv.clientWidth,H=cv.clientHeight,rowH=H/SPAN,lo=center-SPAN/2,y=m=>H-(m-lo)*rowH-rowH/2;
+  ctx.clearRect(0,0,W,H);
+  for(let m=Math.floor(lo)-1;m<=lo+SPAN+1;m++){
+    const pc=((m%12)+12)%12,black=[1,3,6,8,10].includes(pc);
+    ctx.fillStyle=black?C.dark:C.lane;ctx.fillRect(0,y(m)-rowH/2,W,rowH);
+    ctx.strokeStyle=C.line;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,y(m)+rowH/2);ctx.lineTo(W,y(m)+rowH/2);ctx.stroke();
+    if(!black||rowH>16){
+      ctx.fillStyle=pc===0?C.fg:C.muted;ctx.textBaseline='middle';
+      ctx.font=`${pc===0?800:500} ${Math.min(12,rowH*.75)}px ${css('--display')}`;
+      ctx.fillText(pc===0?`ド C${Math.floor(m/12)-1}`:JA[pc],8,y(m));
+    }
+  }
+  const nx=W*NOWX,pps=W/WINDOW;
+  if(showGuide){
+    for(const g of guide){
+      const x1=nx+(g.t-now)*pps,w=Math.max(4,g.d*pps-2);if(x1+w<0)continue;if(x1>W)break;
+      const active=g.t<=now&&now<g.t+g.d;
+      rrect(x1,y(g.m+transpose)-rowH*0.42,w,rowH*0.84,5);
+      ctx.fillStyle=C.guide;ctx.fill();ctx.lineWidth=active?2.5:1.2;ctx.strokeStyle=active?C.accent:C.gline;ctx.stroke();
+    }
+  }
+  const bh=Math.max(4,rowH*0.38);
+  for(let i=0;i<trail.length;i++){
+    const p=trail[i];if(p.m==null)continue;
+    const x=nx+(p.t-now)*pps;if(x<-6||x>nx+2)continue;
+    const nxt=trail[i+1],w=nxt?Math.max(2,(nxt.t-p.t)*pps+1):3;
+    let col;
+    if(p.hit===true)col=C.hit;else if(p.hit===false)col=C.off;
+    else{const dv=Math.abs(p.m-Math.round(p.m));col=dv<0.15?C.hit:dv<0.3?C.accent:C.off}
+    ctx.fillStyle=col;ctx.fillRect(x,y(p.m)-bh/2,w,bh);
+  }
+  ctx.strokeStyle=C.accent;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(nx,0);ctx.lineTo(nx,H);ctx.stroke();
+}
+
+function readout(m,f,target,diff){
+  const tName=target!=null?nameOf(target):null;
+  if(m==null){
+    $('noteJa').textContent='—';$('noteEn').textContent='';$('needle').style.left='50%';
+    const lv=Math.min(10,Math.round(lastRms*400)),meter='入力 '+'▮'.repeat(lv)+'▯'.repeat(10-lv);
+    $('hz').textContent=!analyser?(tName?'お手本 '+tName.ja+tName.en:''):
+      actx&&actx.state!=='running'?'音声が止まっています。もう一度ボタンを押してください':
+      (tName?'お手本 '+tName.ja+'('+tName.en+')・':'声を待っています… ')+meter;
+    return;
+  }
+  const n=nameOf(m);$('noteJa').textContent=n.ja;$('noteEn').textContent=n.en;
+  const c=Math.round((diff!=null?diff:m-Math.round(m))*100),sg=c>0?'+':c<0?'−':'±';
+  $('needle').style.left=Math.max(0,Math.min(100,50+c))+'%';
+  $('hz').textContent=f.toFixed(1)+' Hz・'+(tName?'お手本 '+tName.ja+'('+tName.en+')より ':'')+sg+Math.abs(c)+'¢';
+}
+
+/* ---------- 実行ループ ---------- */
+function tick(){
+  if(!run)return;
+  const isSong=run.kind==='song';
+  const now=isSong?actx.currentTime-run.start:performance.now()/1000-run.start;
+  if(isSong)schedule(now);
+  const {m,f}=readPitch();
+  const target=isSong?guideAt(now):null;
+  let shown=m,diff=null;
+  if(m!=null&&target!=null){shown=fold(m,target);diff=shown-target}
+  const dt=run.last==null?0:now-run.last;run.last=now;
+  if(isSong&&run.mic&&target!=null&&now>0){score.total+=dt;if(diff!=null&&Math.abs(diff)<0.5)score.hit+=dt}
+  trail.push({t:now,m:shown,hit:diff==null?null:Math.abs(diff)<0.5});
+  while(trail.length&&trail[0].t<now-WINDOW)trail.shift();
+  // 表示の高さを追従
+  let aim=null;
+  if(isSong){let s=0,c=0;for(const g of guide){if(g.t>now+4)break;if(g.t+g.d>now-1){s+=g.m+transpose;c++}}if(c)aim=s/c}
+  else aim=shown;
+  if(aim!=null)center+=(aim-center)*0.05;
+  readout(m,f,target,diff);draw(now,isSong);
+  if(isSong){
+    updateLyrics(now);
+    $('progBar').style.width=Math.min(100,now/song.duration*100)+'%';
+    $('time').textContent=fmt(now)+' / '+fmt(song.duration);
+    if(score.total>0.5)$('scoreVal').textContent=Math.round(score.hit/score.total*100);
+    if(now>song.duration+1){finish();return}
+  }
+  raf=requestAnimationFrame(tick);
+}
+function stopAll(){
+  cancelAnimationFrame(raf);run=null;
+  for(const o of sched.nodes){try{o.stop()}catch(e){}}sched.nodes.clear();
+  stopMic();
+  $('singBtn').textContent='▶ この曲を歌う';$('freeBtn').textContent='🎤 自由に歌う';
+  $('status').textContent='停止中';
+}
+function finish(){
+  const hadMic=run&&run.mic;stopAll();
+  if(hadMic&&score.total>0){
+    const s=Math.round(score.hit/score.total*100);$('scoreVal').textContent=s;
+    say(`おつかれさま!結果は ${s} 点です。お手本の音が鳴っている時間のうち、${s}% の時間で音程が合っていました。`,'good');
+  }else say('曲が終わりました。');
+}
+function say(t,cls=''){$('msg').className='msg '+cls;$('msg').textContent=t}
+
+$('singBtn').onclick=async()=>{
+  if(run&&run.kind==='song'){finish();return}
+  stopAll();audio();
+  const mic=await startMic();
+  $('tag').hidden=true;trail=[];recent=[];score={hit:0,total:0};sched.i=0;$('scoreVal').textContent='—';
+  run={kind:'song',start:actx.currentTime+1.2,mic,last:null};
+  if(guide.length)center=guide[0].m+transpose;
+  $('singBtn').textContent='■ 止める';$('status').textContent='歌唱中';
+  say(mic?'お手本バーが黄色の線に来たら歌ってください。':'マイクが使えないので、お手本の再生だけ行います(点数は出ません)。',mic?'':'warn');
+  tick();
+};
+$('freeBtn').onclick=async()=>{
+  if(run&&run.kind==='free'){stopAll();return}
+  stopAll();audio();
+  if(!await startMic()){say('マイクが使えませんでした。ブラウザでこのページのマイクを許可してください。','warn');return}
+  $('tag').hidden=true;trail=[];recent=[];
+  run={kind:'free',start:performance.now()/1000,last:null};
+  $('freeBtn').textContent='■ 止める';$('status').textContent='マイク入力中';
+  say('自由に声を出してみてください。「あー」と伸ばすと安定して表示されます。');
+  tick();
+};
+$('file').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;e.target.value='';
+  stopAll();
+  try{
+    const ab=await f.arrayBuffer(),res=parseMidi(ab);
+    if(!res.parts.length)throw new Error('音符が見つかりませんでした');
+    const name=f.name.replace(/\.(mid|midi|kar)$/i,''),old=await dbGet(name);
+    loadRecord({name,midi:ab,lyrics:old&&old.lyrics?old.lyrics:res.lyrics,shift:old?old.shift:0,
+      melodyId:old?old.melodyId:null,transpose:old?old.transpose:0});
+    if(!old||!old.melodyId)setMelody(guessMelody(res.parts));
+    await saveCur();
+    $('tag').hidden=true;trail=[];draw(0,true);readout(null,null,null,null);updateLyrics(0);
+    $('status').textContent='曲を保存しました';
+    say((res.lyrics&&!(old&&old.lyrics)?'ファイルに入っていた歌詞も読み込みました。':'')+'曲を「マイ曲リスト」に保存しました。お手本のバーが歌のメロディと違う場合は「メロディのパート」から選び直してください。'+(db?'':'(このブラウザでは保存が使えないため、閉じると消えます)'));
+  }catch(err){say('読み込めませんでした:'+err.message+'。拡張子が .mid か .kar のファイルか確認してください。','warn')}
+};
+$('partSel').onchange=e=>{setMelody(e.target.value);shownLine=null;if(!run){draw(0,true);updateLyrics(0)}saveCur()};
+$('libSel').onchange=async e=>{
+  stopAll();const v=e.target.value;
+  const rec=v===SAMPLE?((await dbGet(SAMPLE))||{name:SAMPLE}):await dbGet(v);
+  if(!rec){say('この曲が見つかりませんでした。','warn');return}
+  loadRecord(rec);$('tag').hidden=true;trail=[];draw(0,true);readout(null,null,null,null);updateLyrics(0);
+  say('「'+rec.name+'」を開きました。');
+};
+$('lyrEditBtn').onclick=()=>{$('editor').hidden=!$('editor').hidden;if(!$('editor').hidden)$('lyrText').focus()};
+$('lyrClose').onclick=()=>{$('editor').hidden=true};
+$('lyrSave').onclick=async()=>{
+  setLyrics($('lyrText').value);lyricShift=0;updateLyrics(run&&run.kind==='song'?actx.currentTime-run.start:0);
+  await saveCur();$('editor').hidden=true;
+  say(db?'歌詞を保存しました。次に開いたときも残っています。':'このブラウザでは保存が使えないため、ページを閉じると歌詞は消えます。',db?'good':'warn');
+};
+const shiftLyr=d=>{lyricShift+=d;shownLine=null;updateLyrics(run&&run.kind==='song'?actx.currentTime-run.start:0);saveCur()};
+$('lyrBack').onclick=()=>shiftLyr(-1);
+$('lyrFwd').onclick=()=>shiftLyr(1);
+/* ---------- バックアップ(別の端末へ移す) ---------- */
+function toB64(ab){const u=new Uint8Array(ab);let s='';for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)}
+function fromB64(b){const s=atob(b),u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u.buffer}
+$('exportBtn').onclick=async()=>{
+  const all=(await dbAll())||[];
+  if(!all.length){say('まだ保存した曲がありません。MIDIを読み込むか、歌詞を保存してから書き出してください。','warn');return}
+  const data={app:'onteibar',version:1,exported:new Date().toISOString(),
+    songs:all.map(r=>({...r,midi:r.midi?toB64(r.midi):null}))};
+  const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
+  const d=new Date(),fname=`onteibar-backup-${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+  say(`${all.length} 曲を「${fname}」に書き出しました。自分だけが見られる場所に保管してください。`,'good');
+};
+$('importFile').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;e.target.value='';
+  if(!db){say('このブラウザでは保存が使えないため、読み込めません。','warn');return}
+  try{
+    const data=JSON.parse(await f.text());
+    if(data.app!=='onteibar'||!Array.isArray(data.songs))throw new Error('このページのバックアップファイルではありません');
+    let n=0;
+    for(const r of data.songs){if(!r||!r.name)continue;await dbPut({...r,midi:r.midi?fromB64(r.midi):null});n++}
+    await refreshList();
+    say(`${n} 曲を復元しました。「マイ曲リスト」から選べます。同じ名前の曲はバックアップの内容で上書きしました。`,'good');
+  }catch(err){say('読み込めませんでした:'+err.message,'warn')}
+};
+let delArm=0;
+$('delBtn').onclick=async()=>{
+  if(!cur)return;
+  if(Date.now()-delArm>3000){delArm=Date.now();$('delBtn').textContent='もう一度押すと削除';setTimeout(()=>$('delBtn').textContent='この曲を削除',3000);return}
+  stopAll();const name=cur.name;await dbDel(name);cur=null;delArm=0;$('delBtn').textContent='この曲を削除';
+  loadRecord({name:SAMPLE});await refreshList();draw(0,true);updateLyrics(0);
+  say('「'+name+'」を削除しました。');
+};
+const setKey=v=>{const nv=Math.max(-12,Math.min(12,v));center+=nv-transpose;transpose=nv;
+  $('keyVal').textContent=transpose>0?'+'+transpose:transpose<0?'−'+(-transpose):'±0';if(!run)draw(0,true)};
+$('keyDown').onclick=()=>setKey(transpose-1);
+$('keyUp').onclick=()=>setKey(transpose+1);
+$('optAcc').onchange=e=>opt.accomp=e.target.checked;
+$('optGuide').onchange=e=>opt.guideSound=e.target.checked;
+$('optOct').onchange=e=>opt.octave=e.target.checked;
+addEventListener('resize',()=>{resize();if(!run)draw(run?0:2.2,true)});
+
+/* ---------- 起動時:サンプル曲と例の歌声を表示 ---------- */
+resize();
+loadRecord({name:SAMPLE});
+(async function restore(){
+  db=await openDB();
+  let last=null;try{last=localStorage.getItem('onteibar:last')}catch(e){}
+  const rec=last?await dbGet(last):null;
+  if(rec&&rec.name!==SAMPLE&&!run){
+    loadRecord(rec);$('tag').hidden=true;trail=[];draw(0,true);readout(null,null,null,null);updateLyrics(0);
+    $('status').textContent='前回の曲を開きました';
+  }else if(rec&&!run){loadRecord(rec);updateLyrics(2.2)}
+  await refreshList();
+})();
+(function demoTrail(){
+  for(let t=0.4;t<2.2;t+=0.03){
+    const g=guideAt(t);if(g==null){trail.push({t,m:null,hit:null});continue}
+    const m=g+(t>1.3&&t<1.6?0.7:Math.sin(t*20)*0.15);
+    trail.push({t,m,hit:Math.abs(m-g)<0.5});
+  }
+  center=64;draw(2.2,true);
+  const g=guideAt(2.2);readout(g+0.08,midiToHz(g+0.08),g,0.08);
+  $('scoreVal').textContent='86';updateLyrics(2.2);
+})();
+</script>
+</body>
+</html>
